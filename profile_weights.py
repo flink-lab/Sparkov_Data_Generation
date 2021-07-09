@@ -165,11 +165,21 @@ class Profile:
     def closest_rand(self, pro, num):
         return pro[min([k for k in pro.keys() if k > num])]
 
-    def sample_amt(self, category):
+    def sample_amt(self, category, is_fraud=False, seconds=None):
         shape = self.profile['categories_amt'][category]['mean']**2/ \
                 self.profile['categories_amt'][category]['stdev']**2
         scale = self.profile['categories_amt'][category]['stdev']**2/ \
                 self.profile['categories_amt'][category]['mean']
+        if seconds > 250:
+            if is_fraud:
+                shape = shape / 4
+                scale = scale * 2
+        elif seconds > 200:
+            if is_fraud and random.randint(1, 50) > 250 - seconds:
+                shape = shape / 4
+                scale = scale * 2
+        else:
+            pass
         while True:
             amt = np.random.gamma(shape, scale, 1)[0]
 
@@ -181,44 +191,35 @@ class Profile:
                 return str("{:.2f}".format(amt))
 
     def sample_time(self,am_or_pm, is_fraud):
+        # 20% chance that the fraud will still occur during normal hours
+        unusual = random.randint(1, 100)
+        if unusual > 95:
+            if am_or_pm == 'AM':
+                hour = 0
+            if am_or_pm == 'PM':
+                hour = 0
+            # mins = random.randrange(60)
+            # secs = random.randrange(60)
+            # time_stamp = str(hour).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(secs).zfill(2)
+            time_mean = 200
+            time_stdev = 60
+            # time_seconds = 200 + max(0, int(np.random.gamma((time_mean/time_stdev)**2,  time_stdev**2/time_mean, 1)[0])) % 600
+            time_seconds = max(0, int(np.random.normal(time_mean,  time_stdev, 1)[0]))
+            mins = time_seconds // 60
+            secs = time_seconds % 60
+            time_stamp = str(hour).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(secs).zfill(2)
+        else:
+            # fraudulent transaction
+            if am_or_pm == 'AM':
+                hour = 0
+            if am_or_pm == 'PM':
+                hour = 0
+            mins = random.randrange(10)
+            secs = random.randrange(60)
+            time_stamp = str(hour).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(secs).zfill(2)
+            time_seconds = mins * 60 + secs
 
-            if is_fraud ==0:
-
-                if am_or_pm == 'AM':
-                    hour = random.randrange(0, 12, 1)
-                if am_or_pm == 'PM':
-                    hour = random.randrange(12, 24, 1)
-
-                mins = random.randrange(60)
-                secs = random.randrange(60)
-                time_stamp = str(hour).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(secs).zfill(2)
-
-            if is_fraud ==1:
-
-                #20% chance that the fraud will still occur during normal hours
-                chance = (random.randint(1,100))
-                if chance <= 20:
-
-                    if am_or_pm == 'AM':
-                        hour = random.randrange(0, 12, 1)
-                    if am_or_pm == 'PM':
-                        hour = random.randrange(12, 24, 1)
-
-                    mins = random.randrange(60)
-                    secs = random.randrange(60)
-                    time_stamp = str(hour).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(secs).zfill(2)
-
-                else:
-                    if am_or_pm == 'AM':
-                        hour = random.randrange(0, 4, 1)
-                    if am_or_pm == 'PM':
-                        hour = random.randrange(22, 24, 1)
-
-                    mins = random.randrange(60)
-                    secs = random.randrange(60)
-                    time_stamp = str(hour).zfill(2) + ":" + str(mins).zfill(2) + ":" + str(secs).zfill(2)
-
-            return time_stamp
+        return time_stamp, time_seconds
 
     #def sample_from(self, inputCat):
     def sample_from(self, is_fraud):
@@ -241,21 +242,28 @@ class Profile:
         rand_date = np.random.random(num_trans)
         rand_cat = np.random.random(num_trans)
 
-        fraud_dates = []
+        fraud_seconds = []
         for i, num in enumerate(rand_date):
             trans_num = fake.md5(raw_output=False)
-            chosen_date = self.closest_rand(self.profile['date_wt'], num)
-            if is_fraud ==1:
-                fraud_dates.append(chosen_date.strftime('%Y-%m-%d'))
+            # chosen_date = self.closest_rand(self.profile['date_wt'], num)
+            # i want to sample all trans in the first day
+            chosen_date = self.start
+            # if is_fraud == 1:
+            #     fraud_seconds.append(chosen_date.strftime('%Y-%m-%d'))
             chosen_cat = self.closest_rand(self.profile['categories_wt'], rand_cat[i])
-            chosen_amt = self.sample_amt(chosen_cat)
             chosen_daypart = self.closest_rand(self.profile['shopping_time'], rand_cat[i])
-            stamp = self.sample_time(chosen_daypart, is_fraud)
-            unix_time = datetime.strptime( str((chosen_date.strftime('%Y-%m-%d') +' '+ stamp)),'%Y-%m-%d %H:%M:%S').timetuple()
+            stamp, seconds = self.sample_time(chosen_daypart, is_fraud)
+            fraud_seconds.append(seconds)
+
+            chosen_amt = self.sample_amt(chosen_cat, is_fraud, seconds)
+            unix_time = datetime.strptime(str((chosen_date.strftime('%Y-%m-%d') +' '+ stamp)),'%Y-%m-%d %H:%M:%S').timetuple()
             epoch = str(calendar.timegm((unix_time)))
             #if str(chosen_cat) == inputCat:
-            output.append('|'.join([str(trans_num), chosen_date.strftime('%Y-%m-%d'), stamp, str(epoch), str(chosen_cat), str(chosen_amt), str(is_fraud)]))
+            output.append('|'.join([str(trans_num), chosen_date.strftime('%Y-%m-%d'), stamp, str(epoch),
+                                    str(chosen_cat), str(chosen_amt), str(is_fraud),
+                                    str(self.profile['categories_amt'][chosen_cat]['mean']),
+                                    str(self.profile['categories_amt'][chosen_cat]['stdev'])]))
             #else:
             #    pass
-        return output, is_traveling, travel_max, fraud_dates
+        return output, is_traveling, travel_max, fraud_seconds
 

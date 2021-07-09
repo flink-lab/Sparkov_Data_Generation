@@ -18,3 +18,7 @@ demographics.pyc
 demographics.pyc
 *.pyc
 Notebooks
+
+fraud_detector/result/*
+!fraud_detector/result/placement_latency.py
+!fraud_detector/result/draw_f1.py
